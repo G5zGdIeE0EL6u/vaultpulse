@@ -1,61 +1,53 @@
 package vault
 
 import (
-	"context"
 	"fmt"
 	"time"
 )
 
-// TokenAlertThresholds defines TTL thresholds for token alerts.
-type TokenAlertThresholds struct {
-	Critical time.Duration
-	Warning  time.Duration
+// TokenAlertThreshold defines a TTL boundary and its associated severity.
+type TokenAlertThreshold struct {
+	Below    time.Duration
+	Severity Severity
 }
 
-// DefaultTokenAlertThresholds returns sensible defaults.
-func DefaultTokenAlertThresholds() TokenAlertThresholds {
-	return TokenAlertThresholds{
-		Critical: 1 * time.Hour,
-		Warning:  24 * time.Hour,
+// DefaultTokenAlertThresholds returns the standard alert thresholds for tokens.
+func DefaultTokenAlertThresholds() []TokenAlertThreshold {
+	return []TokenAlertThreshold{
+		{Below: 1 * time.Hour, Severity: SeverityCritical},
+		{Below: 12 * time.Hour, Severity: SeverityHigh},
+		{Below: 24 * time.Hour, Severity: SeverityMedium},
+		{Below: 72 * time.Hour, Severity: SeverityLow},
 	}
 }
 
-// TokenAlerter checks token TTL and produces alerts.
+// TokenAlerter evaluates a TokenInfo against configured thresholds.
 type TokenAlerter struct {
-	inspector  *TokenInspector
-	thresholds TokenAlertThresholds
+	thresholds []TokenAlertThreshold
 }
 
-// NewTokenAlerter creates a TokenAlerter with given thresholds.
-func NewTokenAlerter(inspector *TokenInspector, thresholds TokenAlertThresholds) *TokenAlerter {
-	return &TokenAlerter{
-		inspector:  inspector,
-		thresholds: thresholds,
-	}
+// NewTokenAlerter creates a TokenAlerter with the given thresholds.
+func NewTokenAlerter(thresholds []TokenAlertThreshold) *TokenAlerter {
+	return &TokenAlerter{thresholds: thresholds}
 }
 
-// Check inspects the current token and returns an Alert if TTL is below a threshold.
-func (ta *TokenAlerter) Check(ctx context.Context) (*Alert, error) {
-	info, err := ta.inspector.LookupSelf(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("token alerter check: %w", err)
+// Evaluate checks the token's remaining TTL and returns any triggered alerts.
+func (ta *TokenAlerter) Evaluate(info *TokenInfo) []Alert {
+	if info == nil {
+		return nil
 	}
-
-	ttl := info.TimeUntilExpiry()
-	var severity Severity
-	switch {
-	case ttl <= ta.thresholds.Critical:
-		severity = SeverityCritical
-	case ttl <= ta.thresholds.Warning:
-		severity = SeverityWarning
-	default:
-		return nil, nil
+	ttl := time.Until(info.ExpireTime)
+	var alerts []Alert
+	for _, threshold := range ta.thresholds {
+		if ttl < threshold.Below {
+			alerts = append(alerts, Alert{
+				Path:      "token",
+				Severity:  threshold.Severity,
+				Message:   fmt.Sprintf("token expires in %s (renewable: %v)", ttl.Round(time.Second), info.Renewable),
+				ExpiresAt: info.ExpireTime,
+			})
+			break
+		}
 	}
-
-	return &Alert{
-		Path:      "auth/token/self",
-		ExpiresAt: info.ExpireTime,
-		Severity:  severity,
-		Message:   fmt.Sprintf("token (accessor: %s) expires in %s", info.Accessor, ttl.Round(time.Second)),
-	}, nil
+	return alerts
 }
