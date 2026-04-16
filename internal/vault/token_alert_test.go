@@ -76,3 +76,21 @@ func TestTokenAlerter_Evaluate_ExpiredToken(t *testing.T) {
 		t.Fatal("expected alerts for expired token")
 	}
 }
+
+func TestTokenAlerter_Evaluate_NilInfo(t *testing.T) {
+	ta := NewTokenAlerter(DefaultTokenAlertThresholds())
+	alerts := ta.Evaluate(nil)
+	if len(alerts) == 0 {
+		t.Fatal("expected alerts for nil token info")
+	}
+	found := false
+	for _, a := range alerts {
+		if a.Severity == SeverityCritical {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected a critical severity alert for nil token info")
+	}
+}
