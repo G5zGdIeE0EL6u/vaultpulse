@@ -6,14 +6,12 @@ import (
 	"net/http"
 )
 
-// ReplicationStatus holds the DR and performance replication state.
+// ReplicationStatus holds DR and performance replication state.
 type ReplicationStatus struct {
-	DRMode          string `json:"dr_mode"`
-	PerformanceMode string `json:"performance_mode"`
-	DRPrimary       bool   `json:"dr_primary"`
-	PerfPrimary     bool   `json:"perf_primary"`
-	Connected       bool   `json:"connected"`
-	LastWAL         uint64 `json:"last_wal"`
+	DRMode    string
+	DRState   string
+	PerfMode  string
+	PerfState string
 }
 
 // ReplicationChecker queries Vault replication status.
@@ -21,25 +19,25 @@ type ReplicationChecker struct {
 	client *Client
 }
 
-// NewReplicationChecker returns a new ReplicationChecker or an error if client is nil.
+// NewReplicationChecker returns a new ReplicationChecker.
 func NewReplicationChecker(c *Client) (*ReplicationChecker, error) {
 	if c == nil {
-		return nil, fmt.Errorf("vault client must not be nil")
+		return nil, fmt.Errorf("vault client is required")
 	}
 	return &ReplicationChecker{client: c}, nil
 }
 
 // Status fetches the current replication status from Vault.
 func (r *ReplicationChecker) Status() (*ReplicationStatus, error) {
-	req, err := http.NewRequest(http.MethodGet, r.client.address+"/v1/sys/replication/status", nil)
+	req, err := http.NewRequest(http.MethodGet, r.client.Address+"/v1/sys/replication/status", nil)
 	if err != nil {
 		return nil, fmt.Errorf("building request: %w", err)
 	}
-	req.Header.Set("X-Vault-Token", r.client.token)
+	req.Header.Set("X-Vault-Token", r.client.Token)
 
-	resp, err := r.client.http.Do(req)
+	resp, err := r.client.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("executing request: %w", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -47,31 +45,26 @@ func (r *ReplicationChecker) Status() (*ReplicationStatus, error) {
 		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
 	}
 
-	var payload struct {
+	var raw struct {
 		Data struct {
 			DR struct {
-				Mode    string `json:"mode"`
-				Primary bool   `json:"primary"`
-				LastWAL uint64 `json:"last_wal"`
+				Mode  string `json:"mode"`
+				State string `json:"state"`
 			} `json:"dr"`
 			Performance struct {
-				Mode    string `json:"mode"`
-				Primary bool   `json:"primary"`
+				Mode  string `json:"mode"`
+				State string `json:"state"`
 			} `json:"performance"`
-			Connected bool `json:"connected"`
 		} `json:"data"`
 	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, fmt.Errorf("decoding response: %w", err)
 	}
 
 	return &ReplicationStatus{
-		DRMode:          payload.Data.DR.Mode,
-		PerformanceMode: payload.Data.Performance.Mode,
-		DRPrimary:       payload.Data.DR.Primary,
-		PerfPrimary:     payload.Data.Performance.Primary,
-		Connected:       payload.Data.Connected,
-		LastWAL:         payload.Data.DR.LastWAL,
+		DRMode:    raw.Data.DR.Mode,
+		DRState:   raw.Data.DR.State,
+		PerfMode:  raw.Data.Performance.Mode,
+		PerfState: raw.Data.Performance.State,
 	}, nil
 }
