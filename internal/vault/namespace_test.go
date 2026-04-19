@@ -83,3 +83,20 @@ func TestNamespaceLister_ParsesKeys(t *testing.T) {
 		t.Errorf("expected 'team-a', got %q", results[0].Path)
 	}
 }
+
+func TestNamespaceLister_NotFound(t *testing.T) {
+	// A nil keys slice causes the test server to return 404,
+	// simulating a Vault instance with no namespaces configured.
+	srv := newNamespaceTestServer(t, nil)
+	defer srv.Close()
+
+	c, err := NewClient(srv.URL, "test-token")
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	nl := NewNamespaceLister(c)
+	_, err = nl.List(context.Background(), "")
+	if err == nil {
+		t.Fatal("expected error for 404 response, got nil")
+	}
+}
