@@ -73,3 +73,19 @@ func TestPolicyAuditor_Audit_EmptyPaths(t *testing.T) {
 		t.Fatalf("expected 0 results, got %d", len(results))
 	}
 }
+
+func TestPolicyAuditor_Audit_ValidPolicy(t *testing.T) {
+	srv := newPolicyAuditServer(t)
+	defer srv.Close()
+	c, _ := NewClient(srv.URL, "token")
+	checker := NewPolicyChecker(c)
+	scanner := NewScanner(c)
+	auditor := NewPolicyAuditor(checker, scanner)
+	results, err := auditor.Audit(context.Background(), "mypolicy")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("expected at least one audit result for valid policy")
+	}
+}
