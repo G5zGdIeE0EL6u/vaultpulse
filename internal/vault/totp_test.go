@@ -77,3 +77,14 @@ func TestTOTPKey_IsExpired(t *testing.T) {
 		t.Error("TOTP keys should never be expired")
 	}
 }
+
+func TestNewTOTPScanner_CustomMount(t *testing.T) {
+	client := &Client{}
+	s, err := NewTOTPScanner(client, "custom-totp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if s.mount != "custom-totp" {
+		t.Errorf("expected mount 'custom-totp', got %q", s.mount)
+	}
+}
