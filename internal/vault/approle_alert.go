@@ -5,58 +5,67 @@ import (
 	"time"
 )
 
-// AppRoleAlerter evaluates AppRole roles and raises alerts for short TTLs.
+// AppRoleThreshold defines a TTL boundary and severity for AppRole alerting.
+type AppRoleThreshold struct {
+	MaxTTL   time.Duration
+	Severity Severity
+}
+
+// DefaultAppRoleThresholds provides sensible default alerting thresholds.
+var DefaultAppRoleThresholds = []AppRoleThreshold{
+	{MaxTTL: 24 * time.Hour, Severity: SeverityCritical},
+	{MaxTTL: 72 * time.Hour, Severity: SeverityWarning},
+}
+
+// AppRoleAlerter evaluates AppRole configurations and emits alerts.
 type AppRoleAlerter struct {
-	scanner         *AppRoleScanner
-	warningThreshold  time.Duration
-	criticalThreshold time.Duration
+	scanner    *AppRoleScanner
+	thresholds []AppRoleThreshold
 }
 
-// NewAppRoleAlerter creates an AppRoleAlerter with configurable thresholds.
-func NewAppRoleAlerter(s *AppRoleScanner, warning, critical time.Duration) (*AppRoleAlerter, error) {
-	if s == nil {
-		return nil, fmt.Errorf("approle alerter: scanner must not be nil")
+// NewAppRoleAlerter creates an AppRoleAlerter. Returns nil if scanner is nil.
+func NewAppRoleAlerter(scanner *AppRoleScanner, thresholds []AppRoleThreshold) *AppRoleAlerter {
+	if scanner == nil {
+		return nil
 	}
-	if warning == 0 {
-		warning = 72 * time.Hour
+	if len(thresholds) == 0 {
+		thresholds = DefaultAppRoleThresholds
 	}
-	if critical == 0 {
-		critical = 24 * time.Hour
+	return &AppRoleAlerter{
+		scanner:    scanner,
+		thresholds: thresholds,
 	}
-	return &AppRoleAlerter{scanner: s, warningThreshold: warning, criticalThreshold: critical}, nil
 }
 
-// Evaluate lists all AppRoles and returns alerts for roles whose SecretIDTTL is below thresholds.
-func (a *AppRoleAlerter) Evaluate() ([]*Alert, error) {
+// EvaluateRole checks a single AppRoleInfo against configured thresholds.
+func (a *AppRoleAlerter) EvaluateRole(role AppRoleInfo) []Alert {
+	var alerts []Alert
+	if role.MaxTTL <= 0 {
+		return alerts
+	}
+	for _, th := range a.thresholds {
+		if role.MaxTTL <= th.MaxTTL {
+			alerts = append(alerts, Alert{
+				Path:     fmt.Sprintf("approle/role/%s", role.Name),
+				Message:  fmt.Sprintf("AppRole %q max_ttl %s is at or below threshold %s", role.Name, role.MaxTTL, th.MaxTTL),
+				Severity: th.Severity,
+				Expiry:   time.Now().Add(role.MaxTTL),
+			})
+			break
+		}
+	}
+	return alerts
+}
+
+// EvaluateAll scans all roles and returns aggregated alerts.
+func (a *AppRoleAlerter) EvaluateAll() ([]Alert, error) {
 	roles, err := a.scanner.ListRoles()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("approle alerter: list roles: %w", err)
 	}
-	var alerts []*Alert
-	for _, name := range roles {
-		info, err := a.scanner.GetRole(name)
-		if err != nil || info == nil {
-			continue
-		}
-		ttl := info.SecretIDTTL
-		if ttl <= 0 {
-			continue
-		}
-		var sev string
-		switch {
-		case ttl <= a.criticalThreshold:
-			sev = SeverityCritical
-		case ttl <= a.warningThreshold:
-			sev = SeverityWarning
-		default:
-			continue
-		}
-		alerts = append(alerts, &Alert{
-			Path:      fmt.Sprintf("%s/role/%s", a.scanner.mount, name),
-			TTL:       ttl,
-			Severity:  sev,
-			ExpiresAt: time.Now().Add(ttl),
-		})
+	var all []Alert
+	for _, r := range roles {
+		all = append(all, a.EvaluateRole(r)...)
 	}
-	return alerts, nil
+	return all, nil
 }
