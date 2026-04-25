@@ -61,3 +61,15 @@ func (w *WebhookNotifier) Send(payload WebhookPayload) error {
 
 	return nil
 }
+
+// SendWithTimestamp is a convenience wrapper around Send that automatically
+// sets the Timestamp field to the current UTC time before dispatching.
+func (w *WebhookNotifier) SendWithTimestamp(secretPath, severity, message string, ttl int64) error {
+	return w.Send(WebhookPayload{
+		Timestamp:  time.Now().UTC(),
+		SecretPath: secretPath,
+		Severity:   severity,
+		Message:    message,
+		TTL:        ttl,
+	})
+}
