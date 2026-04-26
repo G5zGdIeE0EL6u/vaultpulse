@@ -22,6 +22,15 @@ func (m *MaintenanceStatus) IsInMaintenance() bool {
 	return m.Enabled
 }
 
+// Age returns how long ago the maintenance status was retrieved.
+// It returns zero if the status is nil or was never fetched.
+func (m *MaintenanceStatus) Age() time.Duration {
+	if m == nil || m.RetrievedAt.IsZero() {
+		return 0
+	}
+	return time.Since(m.RetrievedAt)
+}
+
 // MaintenanceChecker queries the Vault maintenance endpoint.
 type MaintenanceChecker struct {
 	client *Client
